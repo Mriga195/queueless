@@ -1,0 +1,6 @@
+node_modules/
+config.env
+public/img/menu/*
+public/img/users/*
+!public/img/menu/default.jpg
+!public/img/users/default.jpg

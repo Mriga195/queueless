@@ -1,0 +1,5 @@
+[
+  { "name": "Canteen Admin", "email": "admin@queueless.dev", "role": "admin", "password": "test1234", "passwordConfirm": "test1234" },
+  { "name": "Ravi Staff", "email": "staff@queueless.dev", "role": "staff", "password": "test1234", "passwordConfirm": "test1234" },
+  { "name": "Asha Student", "email": "student@queueless.dev", "role": "student", "password": "test1234", "passwordConfirm": "test1234" }
+]

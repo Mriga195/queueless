@@ -1,0 +1,17 @@
+[
+  { "name": "Samosa", "category": "snacks", "price": 15, "isVeg": true, "prepTimeMinutes": 3 },
+  { "name": "Vada Pav", "category": "snacks", "price": 20, "isVeg": true, "prepTimeMinutes": 3 },
+  { "name": "Veg Sandwich", "category": "snacks", "price": 35, "isVeg": true, "prepTimeMinutes": 7 },
+  { "name": "Chicken Momos", "category": "snacks", "price": 60, "isVeg": false, "prepTimeMinutes": 10 },
+  { "name": "Egg Roll", "category": "snacks", "price": 40, "isVeg": false, "prepTimeMinutes": 8 },
+  { "name": "Masala Dosa", "category": "meals", "price": 50, "isVeg": true, "prepTimeMinutes": 10 },
+  { "name": "Veg Thali", "category": "meals", "price": 80, "isVeg": true, "prepTimeMinutes": 5 },
+  { "name": "Chole Bhature", "category": "meals", "price": 60, "isVeg": true, "prepTimeMinutes": 10 },
+  { "name": "Chicken Biryani", "category": "meals", "price": 120, "isVeg": false, "prepTimeMinutes": 5 },
+  { "name": "Veg Maggi", "category": "meals", "price": 30, "isVeg": true, "prepTimeMinutes": 6 },
+  { "name": "Masala Chai", "category": "beverages", "price": 10, "isVeg": true, "prepTimeMinutes": 2 },
+  { "name": "Cold Coffee", "category": "beverages", "price": 40, "isVeg": true, "prepTimeMinutes": 4 },
+  { "name": "Fresh Lime Soda", "category": "beverages", "price": 30, "isVeg": true, "prepTimeMinutes": 3 },
+  { "name": "Gulab Jamun", "category": "desserts", "price": 25, "isVeg": true, "prepTimeMinutes": 1 },
+  { "name": "Ice Cream Cup", "category": "desserts", "price": 30, "isVeg": true, "prepTimeMinutes": 1, "isAvailable": false }
+]
