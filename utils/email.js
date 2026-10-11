@@ -8,17 +8,28 @@ module.exports = class Email {
     this.from = `QueueLess <${process.env.EMAIL_FROM}>`;
   }
 
-  newTransport() {
-    if (process.env.NODE_ENV === 'production') {
-      return nodemailer.createTransport({
-        service: 'SendGrid',
-        auth: {
-          user: process.env.SENDGRID_USERNAME,
-          pass: process.env.SENDGRID_PASSWORD
-        }
-      });
-    }
+  // Render's free plan blocks SMTP, so production sends through Brevo's HTTP API
+  async sendWithBrevo(subject, text) {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': process.env.BREVO_API_KEY
+      },
+      body: JSON.stringify({
+        sender: { name: 'QueueLess', email: process.env.EMAIL_FROM },
+        to: [{ email: this.to }],
+        subject,
+        textContent: text
+      })
+    });
 
+    if (!res.ok) {
+      throw new Error(`Brevo ${res.status}: ${await res.text()}`);
+    }
+  }
+
+  newTransport() {
     return nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
       port: process.env.EMAIL_PORT,
@@ -30,11 +41,17 @@ module.exports = class Email {
   }
 
   async send(subject, text) {
+    const body = `Hi ${this.firstName},\n\n${text}\n\nThe QueueLess team`;
+
+    if (process.env.NODE_ENV === 'production') {
+      return this.sendWithBrevo(subject, body);
+    }
+
     const mailOptions = {
       from: this.from,
       to: this.to,
       subject,
-      text: `Hi ${this.firstName},\n\n${text}\n\nThe QueueLess team`
+      text: body
     };
 
     await this.newTransport().sendMail(mailOptions);

@@ -56,7 +56,9 @@ exports.signup = catchAsync(async (req, res, next) => {
   });
 
   const url = `${process.env.FRONTEND_URL}/menu`;
-  await new Email(newUser, url).sendWelcome();
+  new Email(newUser, url)
+    .sendWelcome()
+    .catch(err => console.log('EMAIL ERROR 💥', err.message));
 
   createSendToken(newUser, 201, req, res);
 });
