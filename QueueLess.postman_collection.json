@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "QueueLess API",
-    "description": "Every QueueLess endpoint. Run \"npm run import\" first, then use one of the Login requests: it saves the token in {{jwt}}, and every request sends it as a Bearer token. Requests that return an ID save it in a variable ({{menuItemId}}, {{orderId}}, {{ratingId}}, {{userId}}) so the next requests can use it.\n\nThe Stripe webhook (/webhook-checkout) can not be called from Postman because Stripe signs it. Use \"stripe listen --forward-to localhost:3000/webhook-checkout\" and pay with the test card 4242 4242 4242 4242.",
+    "description": "Every QueueLess endpoint. Run \"npm run import\" first, then use one of the Login requests: it saves the token in {{jwt}}, and every request sends it as a Bearer token. Requests that return an ID save it in a variable ({{menuItemId}}, {{orderId}}, {{ratingId}}, {{userId}}) so the next requests can use it.\n\nThe Razorpay webhook (/webhook-checkout) can not be called from Postman because Razorpay signs it. Pay through the payment link in Razorpay test mode and Razorpay calls the webhook.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -947,7 +947,7 @@
                 "checkout-session"
               ]
             },
-            "description": "Open session.url from the response in a browser and pay with 4242 4242 4242 4242. Stripe then calls the webhook, which creates the order.",
+            "description": "Open session.url (a Razorpay payment link) in a browser and pay in test mode, e.g. with UPI ID success@razorpay. Razorpay then calls the webhook, which creates the order.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"items\": [\n    {\n      \"menuItem\": \"{{menuItemId}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
@@ -1168,7 +1168,7 @@
                 "cancel"
               ]
             },
-            "description": "Only works while the order is still \"paid\". Refunds the payment through Stripe."
+            "description": "Only works while the order is still \"paid\". Refunds the payment through Razorpay."
           }
         }
       ]

@@ -34,11 +34,11 @@ const orderSchema = new mongoose.Schema({
     enum: ['paid', 'refunded'],
     default: 'paid'
   },
-  stripeSessionId: {
+  paymentLinkId: {
     type: String,
     unique: true
   },
-  stripePaymentIntent: String,
+  paymentId: String,
   user: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',

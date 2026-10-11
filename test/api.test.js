@@ -5,12 +5,14 @@ const dotenv = require('dotenv');
 dotenv.config({ path: './config.env' });
 process.env.NODE_ENV = 'test';
 process.env.DATABASE = 'mongodb://127.0.0.1:27017/queueless_test';
-process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+process.env.RAZORPAY_WEBHOOK_SECRET = 'webhook_test_secret';
+process.env.CANTEEN_OPENS = '00:00';
+process.env.CANTEEN_CLOSES = '24:00';
 process.env.EMAIL_HOST = '127.0.0.1';
 process.env.EMAIL_PORT = '1';
 
 const mongoose = require('mongoose');
-const stripe = require('stripe')('sk_test_unused');
+const crypto = require('crypto');
 const app = require('./../app');
 const MenuItem = require('./../models/menuItemModel');
 const User = require('./../models/userModel');
@@ -35,19 +37,25 @@ const api = async (method, path, { token, body } = {}) => {
   return { status: res.status, body: await res.json() };
 };
 
-const sendWebhook = (session, secret = process.env.STRIPE_WEBHOOK_SECRET) => {
+const sendWebhook = (
+  paymentLink,
+  secret = process.env.RAZORPAY_WEBHOOK_SECRET
+) => {
   const payload = JSON.stringify({
-    type: 'checkout.session.completed',
-    data: { object: session }
+    event: 'payment_link.paid',
+    payload: {
+      payment_link: { entity: paymentLink },
+      payment: { entity: { id: 'pay_test_123' } }
+    }
   });
   return fetch(`${baseUrl}/webhook-checkout`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'stripe-signature': stripe.webhooks.generateTestHeaderString({
-        payload,
-        secret
-      })
+      'x-razorpay-signature': crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex')
     },
     body: payload
   });
@@ -169,22 +177,22 @@ test('students can not reach the staff queue', async () => {
 });
 
 test('full order flow: webhook, queue, status, pickup code, rating, report', async () => {
-  const session = {
-    id: 'cs_test_123',
-    payment_status: 'paid',
-    client_reference_id: users.student.id,
-    amount_total: 22000,
-    payment_intent: 'pi_test_123',
-    metadata: {
-      items: `${items.dosa.id}:2:50,${items.biryani.id}:1:120`
+  const paymentLink = {
+    id: 'plink_test_123',
+    status: 'paid',
+    amount_paid: 22000,
+    notes: {
+      user: users.student.id,
+      items0: `${items.dosa.id}:2:50,${items.biryani.id}:1`,
+      items1: ':120'
     }
   };
 
-  const badSignature = await sendWebhook(session, 'whsec_wrong');
+  const badSignature = await sendWebhook(paymentLink, 'wrong_secret');
   assert.strictEqual(badSignature.status, 400);
 
-  assert.strictEqual((await sendWebhook(session)).status, 200);
-  assert.strictEqual((await sendWebhook(session)).status, 200);
+  assert.strictEqual((await sendWebhook(paymentLink)).status, 200);
+  assert.strictEqual((await sendWebhook(paymentLink)).status, 200);
   assert.strictEqual(await Order.countDocuments(), 1);
 
   const queue = await api('GET', '/api/v1/orders/queue', {
@@ -214,6 +222,21 @@ test('full order flow: webhook, queue, status, pickup code, rating, report', asy
 
   assert.strictEqual((await setStatus({ status: 'ready' })).status, 400);
   assert.strictEqual((await setStatus({ status: 'preparing' })).status, 200);
+
+  process.env.PAYMENT_MODE = 'demo';
+  const demo = await api('POST', '/api/v1/orders/checkout-session', {
+    token: tokens.student,
+    body: { items: [{ menuItem: items.biryani.id, quantity: 2 }] }
+  });
+  delete process.env.PAYMENT_MODE;
+  assert.strictEqual(demo.status, 201);
+  assert.strictEqual(demo.body.data.data.totalAmount, 240);
+  const demoCancel = await api(
+    'PATCH',
+    `/api/v1/orders/${demo.body.data.data._id}/cancel`,
+    { token: tokens.student }
+  );
+  assert.strictEqual(demoCancel.body.data.data.status, 'cancelled');
 
   const lateCancel = await api('PATCH', `/api/v1/orders/${order._id}/cancel`, {
     token: tokens.student

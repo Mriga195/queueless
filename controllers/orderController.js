@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const MenuItem = require('./../models/menuItemModel');
 const Order = require('./../models/orderModel');
 const User = require('./../models/userModel');
@@ -27,10 +26,74 @@ const isCanteenOpen = () => {
   );
 };
 
+const razorpay = async (path, body) => {
+  const keys = `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`;
+  const res = await fetch(`https://api.razorpay.com/v1${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Basic ${Buffer.from(keys).toString('base64')}`
+    },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new AppError(`Payment error: ${data.error.description}`, 502);
+  }
+  return data;
+};
+
 const sendEmailInBackground = (user, url, sendFunction) => {
   sendFunction(new Email(user, url)).catch(err =>
     console.log('EMAIL ERROR 💥', err.message)
   );
+};
+
+const createOrderCheckout = async (paymentLink, payment) => {
+  const orderExists = await Order.findOne({ paymentLinkId: paymentLink.id });
+  if (orderExists) return;
+
+  let cartText = '';
+  for (let i = 0; paymentLink.notes[`items${i}`]; i += 1) {
+    cartText += paymentLink.notes[`items${i}`];
+  }
+
+  const lines = cartText.split(',').map(el => el.split(':'));
+  const menuItems = await MenuItem.find({
+    _id: { $in: lines.map(([menuItemId]) => menuItemId) }
+  });
+
+  const items = lines.map(([menuItemId, quantity, price]) => {
+    const menuItem = menuItems.find(doc => doc.id === menuItemId);
+    return {
+      menuItem: menuItemId,
+      name: menuItem ? menuItem.name : 'Deleted item',
+      quantity: Number(quantity),
+      price: Number(price)
+    };
+  });
+
+  const order = await Order.create({
+    user: paymentLink.notes.user,
+    items,
+    totalAmount: paymentLink.amount_paid / 100,
+    pickupCode: crypto
+      .randomInt(0, 10000)
+      .toString()
+      .padStart(4, '0'),
+    paymentLinkId: paymentLink.id,
+    paymentId: payment.id
+  });
+
+  const user = await User.findById(paymentLink.notes.user);
+  if (user) {
+    sendEmailInBackground(user, `${process.env.FRONTEND_URL}/orders`, email =>
+      email.sendOrderConfirmation(order)
+    );
+  }
+
+  return order;
 };
 
 exports.getCheckoutSession = catchAsync(async (req, res, next) => {
@@ -77,94 +140,86 @@ exports.getCheckoutSession = catchAsync(async (req, res, next) => {
     cart.push({ menuItem, quantity });
   }
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    success_url: `${process.env.FRONTEND_URL}/orders?payment=success`,
-    cancel_url: `${process.env.FRONTEND_URL}/cart`,
-    customer_email: req.user.email,
-    client_reference_id: req.user.id,
-    metadata: {
-      items: cart
-        .map(el => `${el.menuItem.id}:${el.quantity}:${el.menuItem.price}`)
-        .join(',')
-    },
-    line_items: cart.map(el => ({
-      quantity: el.quantity,
-      price_data: {
-        currency: process.env.CURRENCY,
-        unit_amount: Math.round(el.menuItem.price * 100),
-        product_data: { name: el.menuItem.name }
+  // Razorpay notes values are capped at 256 characters, so the cart is split
+  const cartText = cart
+    .map(el => `${el.menuItem.id}:${el.quantity}:${el.menuItem.price}`)
+    .join(',');
+  const notes = { user: req.user.id };
+  for (let i = 0; i * 250 < cartText.length; i += 1) {
+    notes[`items${i}`] = cartText.slice(i * 250, (i + 1) * 250);
+  }
+
+  const amount = cart.reduce(
+    (sum, el) => sum + Math.round(el.menuItem.price * 100) * el.quantity,
+    0
+  );
+
+  // Demo mode: no payment gateway, the order is created as if it was paid
+  if (process.env.PAYMENT_MODE === 'demo') {
+    const order = await createOrderCheckout(
+      { id: `demo_${crypto.randomUUID()}`, amount_paid: amount, notes },
+      {}
+    );
+
+    return res.status(201).json({
+      status: 'success',
+      session: {
+        id: order.paymentLinkId,
+        url: `${process.env.FRONTEND_URL}/orders?payment=success`
+      },
+      data: {
+        data: order
       }
-    }))
+    });
+  }
+
+  const paymentLink = await razorpay('/payment_links', {
+    amount,
+    currency: process.env.CURRENCY.toUpperCase(),
+    description: 'QueueLess canteen order',
+    customer: { email: req.user.email },
+    notify: { sms: false, email: false },
+    callback_url: `${process.env.FRONTEND_URL}/orders?payment=success`,
+    callback_method: 'get',
+    notes
   });
 
   res.status(200).json({
     status: 'success',
     session: {
-      id: session.id,
-      url: session.url
+      id: paymentLink.id,
+      url: paymentLink.short_url
     }
   });
 });
 
-const createOrderCheckout = async session => {
-  const orderExists = await Order.findOne({ stripeSessionId: session.id });
-  if (orderExists) return;
-
-  const lines = session.metadata.items.split(',').map(el => el.split(':'));
-  const menuItems = await MenuItem.find({
-    _id: { $in: lines.map(([menuItemId]) => menuItemId) }
-  });
-
-  const items = lines.map(([menuItemId, quantity, price]) => {
-    const menuItem = menuItems.find(doc => doc.id === menuItemId);
-    return {
-      menuItem: menuItemId,
-      name: menuItem ? menuItem.name : 'Deleted item',
-      quantity: Number(quantity),
-      price: Number(price)
-    };
-  });
-
-  const order = await Order.create({
-    user: session.client_reference_id,
-    items,
-    totalAmount: session.amount_total / 100,
-    pickupCode: crypto
-      .randomInt(0, 10000)
-      .toString()
-      .padStart(4, '0'),
-    stripeSessionId: session.id,
-    stripePaymentIntent: session.payment_intent
-  });
-
-  const user = await User.findById(session.client_reference_id);
-  if (user) {
-    sendEmailInBackground(user, `${process.env.FRONTEND_URL}/orders`, email =>
-      email.sendOrderConfirmation(order)
-    );
-  }
-};
-
 exports.webhookCheckout = catchAsync(async (req, res, next) => {
-  const signature = req.headers['stripe-signature'];
-
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    return res.status(400).send(`Webhook error: ${err.message}`);
-  }
+  const expected = crypto
+    .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+    .update(req.body)
+    .digest();
+  const signature = Buffer.from(
+    String(req.headers['x-razorpay-signature']),
+    'hex'
+  );
 
   if (
-    event.type === 'checkout.session.completed' &&
-    event.data.object.payment_status === 'paid'
+    signature.length !== expected.length ||
+    !crypto.timingSafeEqual(signature, expected)
   ) {
-    await createOrderCheckout(event.data.object);
+    return res.status(400).send('Webhook error: invalid signature');
+  }
+
+  const event = JSON.parse(req.body);
+
+  if (
+    event.event === 'payment_link.paid' &&
+    event.payload.payment_link.entity.status === 'paid'
+  ) {
+    await createOrderCheckout(
+      event.payload.payment_link.entity,
+      event.payload.payment.entity
+    );
   }
 
   res.status(200).json({ received: true });
@@ -296,7 +351,9 @@ exports.cancelOrder = catchAsync(async (req, res, next) => {
     );
   }
 
-  await stripe.refunds.create({ payment_intent: order.stripePaymentIntent });
+  if (order.paymentId) {
+    await razorpay(`/payments/${order.paymentId}/refund`, {});
+  }
 
   order.status = 'cancelled';
   order.paymentStatus = 'refunded';
